@@ -27,5 +27,5 @@ We are **not responsible** for any damage that may occur to your system or VPS.
 One-liner install (recommended):
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/alands-offc/Alxzy-VPN-Beta-/main/install.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/alands-offc/Alxzy-VPN/main/install.sh)
 ```
