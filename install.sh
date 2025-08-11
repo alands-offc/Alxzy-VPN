@@ -98,63 +98,57 @@ systemctl restart stunnel4
 # --- Tahap 6: Konfigurasi Nginx HANYA untuk Port 80 ---
 msg_info "Konfigurasi Nginx HANYA untuk menangani Port 80..."
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
-cat > /etc/nginx/conf.d/http_only.conf <<EOF
-# Blok untuk Port 80 (Hanya untuk SSH WS, tidak aman)
+sudo tee /etc/nginx/conf.d/http_only.conf > /dev/null <<EOF
 server {
     listen 80;
-    server_name $DOMAIN;
+    server_name ${DOMAIN};
 
     location / {
         proxy_pass http://127.0.0.1:2253;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
 }
-
-# Blok untuk Port 443 (SSL/TLS - Untuk SSH dan VLESS)
 server {
     listen 443 ssl http2;
-    server_name $DOMAIN;
+    server_name ${DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location /vless-ws {
         proxy_pass http://127.0.0.1:10002;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
     location / {
         proxy_pass http://127.0.0.1:2253;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
 }
-
-# Blok untuk Port 2083 (SSL/TLS - Khusus untuk VMess)
 server {
     listen 2083 ssl http2;
-    server_name $DOMAIN;
+    server_name ${DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location / {
         proxy_pass http://127.0.0.1:10003;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
 }
 EOF
 systemctl restart nginx
 
-# --- Tahap 7: Instalasi Xray & BadVPN ---
 msg_info "Menginstal Xray & BadVPN..."
 cd /root
 if [ ! -d "badvpn" ]; then git clone -q https://github.com/ambrop72/badvpn.git; fi
