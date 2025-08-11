@@ -98,12 +98,6 @@ server {
     location /vmess { proxy_pass http://127.0.0.1:10001; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
     location /vless { proxy_pass http://127.0.0.1:10002; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
 }
-# PORT 443 (SSL UNTUK SSH)
-server {
-    listen 443 ssl http2; server_name vpn.alxzy.xyz;
-    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
-    location / { proxy_pass http://127.0.0.1:2253; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
-}
 # PORT 8443 (SSL UNTUK VMESS)
 server {
     listen 8443 ssl http2; server_name vpn.alxzy.xyz;
