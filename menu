@@ -51,14 +51,10 @@ function create_user() {
     case $protocol_choice in
         1) # SSH
             echo -e "\n\e[1;33mMembuat user SSH untuk '$user'...\e[0m"
-            # Langkah 1: Buat user secara diam-diam
-            useradd -e "$exp_date" -s /bin/bash "$user"
-            # Langkah 2: Minta password secara interaktif
-            echo -e "\n\e[1;33mSekarang, silakan atur password untuk user '$user'...\e[0m"
-            passwd "$user"
-            # Langkah 3: Kunci shell user untuk keamanan
-            echo -e "\nMengunci shell user ke /bin/false..."
-            usermod -s /bin/false "$user"
+          sudo useradd -m -s /bin/bash "$user"
+             sudo passwd "$user"
+            # Mengatur tanggal kadaluwarsa & menonaktifkan shell setelah user dibuat
+            usermod -e "$exp_date" -s /bin/bash "$user"
             clear
             echo -e "\n\e[1;32m✅ User SSH [$user] Dibuat dengan Aman!\e[0m"
             echo -e "   Host: $DOMAIN"
