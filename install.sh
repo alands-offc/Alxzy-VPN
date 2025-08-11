@@ -99,8 +99,11 @@ systemctl restart stunnel4
 msg_info "Konfigurasi Nginx HANYA untuk menangani Port 80..."
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 cat > /etc/nginx/conf.d/http_only.conf <<EOF
+# Blok untuk Port 80 (Hanya untuk SSH WS, tidak aman)
 server {
-    listen 80; server_name $DOMAIN;
+    listen 80;
+    server_name $DOMAIN;
+
     location / {
         proxy_pass http://127.0.0.1:2253;
         proxy_http_version 1.1;
@@ -108,8 +111,12 @@ server {
         proxy_set_header Connection "upgrade";
     }
 }
+
+# Blok untuk Port 443 (SSL/TLS - Untuk SSH dan VLESS)
 server {
-    listen 443 ssl http2; server_name $DOMAIN;
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -127,13 +134,16 @@ server {
         proxy_set_header Connection "upgrade";
     }
 }
+
+# Blok untuk Port 2083 (SSL/TLS - Khusus untuk VMess)
 server {
-    listen 2083 ssl http2; server_name $DOMAIN;
+    listen 2083 ssl http2;
+    server_name $DOMAIN;
+
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    # Port ini sekarang khusus untuk VMess
     location / {
         proxy_pass http://127.0.0.1:10003;
         proxy_http_version 1.1;
