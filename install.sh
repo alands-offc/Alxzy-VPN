@@ -39,6 +39,7 @@ apt install -y stunnel4 nginx ufw dropbear net-tools cmake make gcc screen git j
 msg_info "Konfigurasi Firewall (UFW) dan Kernel (BBR)..."
 ufw allow 22,80,443,8443/tcp
 ufw allow 2253/tcp # Internal Dropbear Port
+sudo ufw allow 2083/tcp
 ufw allow 7300/udp # BadVPN
 ufw --force enable
 ufw reload > /dev/null 2>&1
@@ -99,15 +100,45 @@ msg_info "Konfigurasi Nginx HANYA untuk menangani Port 80..."
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 cat > /etc/nginx/conf.d/http_only.conf <<EOF
 server {
-    listen 80;
-    server_name $DOMAIN;
-
+    listen 80; server_name $DOMAIN;
     location / {
-        proxy_pass http://127.0.0.1:${DROPBEAR_PORT};
+        proxy_pass http://127.0.0.1:2253;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+    }
+}
+server {
+    listen 443 ssl http2; server_name $DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location /vless-ws {
+        proxy_pass http://127.0.0.1:10002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+    location / {
+        proxy_pass http://127.0.0.1:2253;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+server {
+    listen 2083 ssl http2; server_name $DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Port ini sekarang khusus untuk VMess
+    location / {
+        proxy_pass http://127.0.0.1:10003;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 EOF
@@ -148,10 +179,22 @@ echo "[]" > /usr/local/etc/xray/users/vless_users.json
 cat > /usr/local/etc/xray/config.json <<EOF
 {
   "log": {"loglevel": "warning"},
-  "inbounds": [
-    {"listen": "127.0.0.1","port": 10001,"protocol": "vmess","settings": {"clients": []},"streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess-ws"}}},
-    {"listen": "127.0.0.1","port": 10002,"protocol": "vless","settings": {"clients": [], "decryption": "none"},"streamSettings": {"network": "ws", "wsSettings": {"path": "/vless-ws"}}},
-    {"listen": "0.0.0.0","port": 8443,"protocol": "vless","settings": {"clients": [],"decryption": "none"},"streamSettings": {"network": "tcp","security": "reality","realitySettings": {"show": false,"dest": "www.microsoft.com:443","xver": 0,"serverNames": ["www.microsoft.com", "microsoft.com"],"privateKey": "${XRAY_PRIVATE_KEY}","shortIds": [""]}}}
+"inbounds": [
+    {
+      "listen": "127.0.0.1", "port": 10002, "protocol": "vless",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vless-ws"}}
+    },
+    {
+      "listen": "0.0.0.0", "port": 8443, "protocol": "vless",
+      "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": "www.microsoft.com:443", "xver": 0, "serverNames": ["www.microsoft.com"], "privateKey": "PRIVATE_KEY_ANDA_AKAN_ADA_DI_SINI", "shortIds": [""]}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10003, "protocol": "vmess",
+      "settings": {"clients": []},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/"}}
+    }
   ],
   "outbounds": [{"protocol": "freedom","tag": "direct"}]
 }
