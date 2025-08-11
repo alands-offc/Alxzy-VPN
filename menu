@@ -61,41 +61,41 @@ function create_user() {
             echo -e "   Port 443 (SSL) & Port 80 (WS)"
             echo -e "   Expired on: $exp_date"
             ;;
-        2) # VMess WS Port 80
+        2) # VMess - DUAL LINK
             uuid=$(get_uuid)
-            jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" \
-                '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VMESS_USER_FILE" > tmp.json && mv tmp.json "$VMESS_USER_FILE"
+            jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VMESS_USER_FILE" > tmp.json && mv tmp.json "$VMESS_USER_FILE"
             jq ".inbounds[0].settings.clients += [{\"id\": \"$uuid\", \"alterId\": 0}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
-            reload_services
+            systemctl reload xray
             
-            vmess_json="{\"v\":\"2\",\"ps\":\"${user}_VMESS_WS_80\",\"add\":\"$DOMAIN\",\"port\":\"80\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$DOMAIN\",\"path\":\"/vmess\",\"tls\":\"none\"}"
-            vmess_link="vmess://$(echo "$vmess_json" | base64 -w 0)"
+            # Link 1: Port 80 (WS)
+            vmess_ws="vmess://$(echo "{\"v\":\"2\",\"ps\":\"${user}_WS_80\",\"add\":\"$DOMAIN\",\"port\":\"80\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$DOMAIN\",\"path\":\"/vmess\",\"tls\":\"none\"}" | base64 -w 0)"
+            # Link 2: Port 8443 (WSS)
+            vmess_wss="vmess://$(echo "{\"v\":\"2\",\"ps\":\"${user}_WSS_8443\",\"add\":\"$DOMAIN\",\"port\":\"8443\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$DOMAIN\",\"path\":\"/\",\"tls\":\"tls\",\"sni\":\"$DOMAIN\"}" | base64 -w 0)"
             
             clear
-            echo -e "\n\e[1;32m✅ User VMess (WS) [$user] Dibuat!\e[0m"
-            echo -e "   Port: 80 (WebSocket tanpa SSL)"
-            echo -e "   Path: /vmess"
-            echo -e "   Expired on: $exp_date\n"
-            echo -e "\e[1;36m--- Link Konfigurasi ---\e[0m\n$vmess_link"
+            echo -e "\n\e[1;32m✅ User VMess [$user] Dibuat!\e[0m (Expired: $exp_date)"
+            echo -e "\n\e[1;33m--- Link 1: WebSocket (Port 80) ---\e[0m"
+            echo -e "$vmess_ws"
+            echo -e "\n\e[1;33m--- Link 2: WebSocket SSL (Port 8443) ---\e[0m"
+            echo -e "$vmess_wss"
             ;;
-        3) # VLESS WS Port 80
+        3) # VLESS - DUAL LINK
             uuid=$(get_uuid)
-            jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" \
-                '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VLESS_USER_FILE" > tmp.json && mv tmp.json "$VLESS_USER_FILE"
+            jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VLESS_USER_FILE" > tmp.json && mv tmp.json "$VLESS_USER_FILE"
             jq ".inbounds[1].settings.clients += [{\"id\": \"$uuid\"}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
-            reload_services
+            systemctl reload xray
             
-            vless_link="vless://${uuid}@${DOMAIN}:80?encryption=none&headerType=none&type=ws&path=%2Fvless&host=${DOMAIN}#${user}_VLESS_WS_80"
+            # Link 1: Port 80 (WS)
+            vless_ws="vless://${uuid}@${DOMAIN}:80?encryption=none&headerType=none&type=ws&path=%2Fvless&host=${DOMAIN}#${user}_VLESS_WS_80"
+            # Link 2: Port 2043 (WSS)
+            vless_wss="vless://${uuid}@${DOMAIN}:2043?security=tls&encryption=none&headerType=none&type=ws&path=%2F&sni=${DOMAIN}#${user}_VLESS_WSS_2043"
 
             clear
-            echo -e "\n\e[1;32m✅ User VLESS [$user] Dibuat!\e[0m"
-            echo -e "   Port: 80 (WebSocket tanpa SSL)"
-            echo -e "   Path: /vless"
-            echo -e "   Expired on: $exp_date\n"
-            echo -e "\e[1;36m--- Link Konfigurasi ---\e[0m\n$vless_link"
-            ;;
-        *)
-            echo "Pilihan tidak valid."
+            echo -e "\n\e[1;32m✅ User VLESS [$user] Dibuat!\e[0m (Expired: $exp_date)"
+            echo -e "\n\e[1;33m--- Link 1: WebSocket (Port 80) ---\e[0m"
+            echo -e "$vless_ws"
+            echo -e "\n\e[1;33m--- Link 2: WebSocket SSL (Port 2043) ---\e[0m"
+            echo -e "$vless_wss"
             ;;
     esac
     read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu..."
