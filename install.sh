@@ -94,21 +94,27 @@ rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
 cat > /etc/nginx/conf.d/main_config.conf <<EOF
 # PORT 80 (WS TANPA SSL)
 server {
-    listen 80; server_name ${DOMAIN};
+    listen 80; server_name vpn.alxzy.xyz;
     location /vmess { proxy_pass http://127.0.0.1:10001; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
     location /vless { proxy_pass http://127.0.0.1:10002; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
 }
+# PORT 443 (SSL UNTUK SSH)
+server {
+    listen 443 ssl http2; server_name vpn.alxzy.xyz;
+    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
+    location / { proxy_pass http://127.0.0.1:2253; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
+}
 # PORT 8443 (SSL UNTUK VMESS)
 server {
-    listen 8443 ssl http2; server_name ${DOMAIN};
-    ssl_certificate ${CERT_PATH}; ssl_certificate_key ${KEY_PATH}; ssl_protocols TLSv1.2 TLSv1.3;
-    location / { proxy_pass http://127.0.0.1:10001; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
+    listen 8443 ssl http2; server_name vpn.alxzy.xyz;
+    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
+    location / { proxy_pass http://127.0.0.1:10003; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
 }
 # PORT 2043 (SSL UNTUK VLESS)
 server {
-    listen 2043 ssl http2; server_name ${DOMAIN};
-    ssl_certificate ${CERT_PATH}; ssl_certificate_key ${KEY_PATH}; ssl_protocols TLSv1.2 TLSv1.3;
-    location / { proxy_pass http://127.0.0.1:10002; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
+    listen 2043 ssl http2; server_name vpn.alxzy.xyz;
+    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
+    location / { proxy_pass http://127.0.0.1:10004; proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; }
 }
 EOF
 systemctl restart nginx
@@ -123,8 +129,22 @@ cat > /usr/local/etc/xray/config.json <<EOF
 {
   "log": {"loglevel": "warning"},
   "inbounds": [
-    {"listen": "127.0.0.1", "port": 10001, "protocol": "vmess", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}}},
-    {"listen": "127.0.0.1", "port": 10002, "protocol": "vless", "settings": {"clients": [], "decryption": "none"}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/vless"}}}
+    {
+      "listen": "127.0.0.1", "port": 10001, "protocol": "vmess", "settings": {"clients": []},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10002, "protocol": "vless", "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vless"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10003, "protocol": "vmess", "settings": {"clients": []},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/"}}
+    },
+    {
+      "listen": "127.0.0.1", "port": 10004, "protocol": "vless", "settings": {"clients": [], "decryption": "none"},
+      "streamSettings": {"network": "ws", "wsSettings": {"path": "/"}}
+    }
   ],
   "outbounds": [{"protocol": "freedom","tag": "direct"}]
 }
