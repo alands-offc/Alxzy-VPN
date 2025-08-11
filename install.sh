@@ -91,21 +91,21 @@ systemctl restart stunnel4
 # --- Tahap 5: Konfigurasi Nginx untuk port 80, 8443, 2043 ---
 msg_info "Konfigurasi Nginx untuk menangani port WS & WSS..."
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
-cat > /etc/nginx/conf.d/main_config.conf <<EOF
-# PORT 80 (UNTUK VMESS & VLESS WS TANPA SSL)
+sudo tee /etc/nginx/conf.d/main_config.conf > /dev/null <<EOF
 server {
     listen 80;
-    server_name vpn.alxzy.xyz;
+    server_name ${DOMAIN};
+
     location /vmess { 
         proxy_pass http://127.0.0.1:10001; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade; 
         proxy_set_header Connection "upgrade"; 
     }
     location /vless { 
         proxy_pass http://127.0.0.1:10002; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade; 
         proxy_set_header Connection "upgrade"; 
     }
 }
@@ -114,45 +114,52 @@ server {
 server {
     listen 8443 ssl http2;
     listen [::]:8443 ssl http2;
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     ssl_session_timeout 1d;
     ssl_session_cache shared:MozSSL:10m; 
     ssl_session_tickets off;
-    ssl_dhparam /etc/nginx/dhparam;
-    ssl_protocols TLSv1.2;
+    
+    # ssl_dhparam dinonaktifkan karena filenya tidak ada
+    # ssl_dhparam /etc/nginx/dhparam;
+    
+    ssl_protocols TLSv1.2 TLSv1.3; # TLSv1.3 ditambahkan
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
     
     location / {
-	proxy_redirect off;
-	proxy_pass http://127.0.0.1:10003;
-	proxy_http_version 1.1;
-	proxy_set_header Upgrade \$http_upgrade;
-	proxy_set_header Connection "upgrade";
-	proxy_set_header Host \$http_host;
-	proxy_set_header X-Real-IP \$remote_addr;
-	proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10003; # Typo diperbaiki & port sudah benar
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 
 # PORT 2043 (SSL/WSS KHUSUS UNTUK VLESS)
 server {
     listen 2043 ssl http2;
-    server_name vpn.alxzy.xyz;
+    server_name ${DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location / { 
-        proxy_pass http://127.0.0.1:10002; 
+        proxy_pass http://127.0.0.1:10004; # Diperbaiki ke port 10004
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade; 
         proxy_set_header Connection "upgrade"; 
     }
 }
 EOF
-systemctl restart nginx
+
+# Terapkan perubahan
+sudo nginx -t && sudo systemctl restart nginx
 
 # --- Tahap 6: Konfigurasi Xray ---
 msg_info "Menginstal & Konfigurasi Xray..."
