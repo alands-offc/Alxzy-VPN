@@ -113,17 +113,25 @@ server {
 # PORT 8443 (SSL/WSS KHUSUS UNTUK VMESS)
 server {
     listen 8443 ssl http2;
-    server_name vpn.alxzy.xyz;
-
-    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-
-    location / { 
-        proxy_pass http://127.0.0.1:10001; 
-        proxy_http_version 1.1; 
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade"; 
+    listen [::]:8443 ssl http2;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozSSL:10m; 
+    ssl_session_tickets off;
+    ssl_dhparam /etc/nginx/dhparam;
+    ssl_protocols TLSv1.2;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    
+    location / {
+	proxy_redirect off;
+	proxy_pass http://127.0.0.1:10003;
+	proxy_http_version 1.1;
+	proxy_set_header Upgrade $http_upgrade;
+	proxy_set_header Connection "upgrade";
+	proxy_set_header Host $http_host;
+	proxy_set_header X-Real-IP $remote_addr;
+	proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 
@@ -132,8 +140,8 @@ server {
     listen 2043 ssl http2;
     server_name vpn.alxzy.xyz;
 
-    ssl_certificate /etc/letsencrypt/live/vpn.alxzy.xyz/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/vpn.alxzy.xyz/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location / { 
@@ -152,31 +160,86 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 mkdir -p /usr/local/etc/xray/users
 echo "[]" > /usr/local/etc/xray/users/vmess_users.json
 echo "[]" > /usr/local/etc/xray/users/vless_users.json
-cat > /usr/local/etc/xray/config.json <<EOF
+sudo tee /usr/local/etc/xray/config.json > /dev/null <<EOF
 {
-  "log": {"loglevel": "warning"},
+  "log": {
+    "loglevel": "warning"
+  },
   "inbounds": [
     {
-      "listen": "127.0.0.1", "port": 10001, "protocol": "vmess", "settings": {"clients": []},
-      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}}
+      "listen": "127.0.0.1",
+      "port": 10001,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
     },
     {
-      "listen": "127.0.0.1", "port": 10002, "protocol": "vless", "settings": {"clients": [], "decryption": "none"},
-      "streamSettings": {"network": "ws", "wsSettings": {"path": "/vless"}}
+      "listen": "127.0.0.1",
+      "port": 10002,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vless"
+        }
+      }
     },
     {
-      "listen": "127.0.0.1", "port": 10003, "protocol": "vmess", "settings": {"clients": []},
-      "streamSettings": {"network": "ws", "wsSettings": {"path": "/"}}
+      "listen": "127.0.0.1",
+      "port": 10003,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/"
+        }
+      }
     },
     {
-      "listen": "127.0.0.1", "port": 10004, "protocol": "vless", "settings": {"clients": [], "decryption": "none"},
-      "streamSettings": {"network": "ws", "wsSettings": {"path": "/"}}
+      "listen": "127.0.0.1",
+      "port": 10004,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/"
+        }
+      }
     }
   ],
-  "outbounds": [{"protocol": "freedom","tag": "direct"}]
+  "outbounds": [
+    {
+      "protocol": "freedom",
+       "settings": {}
+    }
+  ]
 }
 EOF
 systemctl enable --now xray
+# Setelah itu, langsung restart Xray
+sudo systemctl restart xray
+
+# Dan sekarang, verifikasi lagi
+echo "Memeriksa port internal Xray..."
+sudo ss -tulpn | grep ':1000'
 
 msg_info "Instalasi skrip menu..."
 # --- Tahap 8: Instalasi Skrip Menu ---
