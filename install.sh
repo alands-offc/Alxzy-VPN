@@ -99,13 +99,13 @@ server {
     location /vmess { 
         proxy_pass http://127.0.0.1:10001; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade $http_upgrade; 
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade"; 
     }
     location /vless { 
         proxy_pass http://127.0.0.1:10002; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade $http_upgrade; 
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade"; 
     }
 }
@@ -122,7 +122,7 @@ server {
     location / { 
         proxy_pass http://127.0.0.1:10001; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade $http_upgrade; 
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade"; 
     }
 }
@@ -139,7 +139,7 @@ server {
     location / { 
         proxy_pass http://127.0.0.1:10002; 
         proxy_http_version 1.1; 
-        proxy_set_header Upgrade $http_upgrade; 
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade"; 
     }
 }
