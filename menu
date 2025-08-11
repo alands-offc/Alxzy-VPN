@@ -1,11 +1,8 @@
-root@ubuntu-s-1vcpu-2gb-sgp1-01:~# cat /usr/local/bin/menu
 #!/bin/bash
-export DOMAIN=${DOMAIN:-"vpn.alxzy.xyz"}
-export XRAY_PUBLIC_KEY=${XRAY_PUBLIC_KEY:-"your_public_key_here"}
+export DOMAIN=$(cat /root/domain)
 export VMESS_USER_FILE="/usr/local/etc/xray/users/vmess_users.json"
 export VLESS_USER_FILE="/usr/local/etc/xray/users/vless_users.json"
 export XRAY_CONFIG="/usr/local/etc/xray/config.json"
-export DROPBEAR_PORT=$(grep -oP 'DROPBEAR_PORT=\K\d+' /etc/default/dropbear 2>/dev/null || echo "2253")
 
 # --- FUNGSI UTILITAS ---
 function reload_services() {
@@ -18,14 +15,9 @@ function get_uuid() {
 
 # --- FUNGSI TAMPILAN ---
 function system_info() {
-    local iface=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
-    local tx_bytes=$(cat /sys/class/net/${iface}/statistics/tx_bytes 2>/dev/null || echo 0)
-    local rx_bytes=$(cat /sys/class/net/${iface}/statistics/rx_bytes 2>/dev/null || echo 0)
-    local tx=$(numfmt --to=iec --suffix=B $tx_bytes)
-    local rx=$(numfmt --to=iec --suffix=B $rx_bytes)
     local ram_usage=$(free -h | awk '/^Mem:/ {print $3 "/" $2}')
     local disk_usage=$(df -h / | awk 'NR==2 {print $3 "/" $2}')
-
+    
     clear
     echo -e "\e[1;35m╔══════════════[ \e[1;36mSYSTEM INFORMATION\e[1;35m ]══════════════╗\e[0m"
     echo -e "║ \e[1;32mOS\e[0m             : \e[1;37m$(lsb_release -ds)\e[1;35m"
@@ -33,8 +25,6 @@ function system_info() {
     echo -e "║ \e[1;32mDomain\e[0m         : \e[1;32m$DOMAIN\e[0m"
     echo -e "║ \e[1;32mRAM\e[0m            : \e[1;37m$ram_usage\e[1;35m"
     echo -e "║ \e[1;32mDisk\e[0m           : \e[1;37m$disk_usage\e[1;35m"
-    echo -e "║ \e[1;32mBandwidth TX\e[0m 📤 : \e[1;37m$tx\e[1;35m"
-    echo -e "║ \e[1;32mBandwidth RX\e[0m 📥 : \e[1;37m$rx\e[1;35m"
     echo -e "\e[1;35m╚══════════════════════════════════════════════════╝\e[0m"
 }
 
@@ -44,81 +34,69 @@ function create_user() {
     echo -e "\e[1;36m=================================\e[0m"
     echo -e " \e[1;37m      BUAT PENGGUNA BARU       \e[0m"
     echo -e "\e[1;36m=================================\e[0m"
-
-    echo "Pilih Protokol: 1. VMess (WS) | 2. VLESS (WS & Reality) | 3. SSH (WS)"
+    
+    echo "Pilih Protokol: 1. SSH | 2. VMess (WS) | 3. VLESS (WS)"
     read -p "Pilihan [1-3]: " protocol_choice
 
-    if [[ "$protocol_choice" != "3" ]]; then
-        read -p "Username: " user
-        if [[ -z "$user" ]]; then
-            echo -e "\n\e[1;31m❌ Username tidak boleh kosong.\e[0m"; sleep 2; return
-        fi
-        read -p "Masa Aktif (hari): " exp
-        exp_date=$(date -d "$exp days" +"%Y-%m-%d" 2>/dev/null)
-        if [[ -z "$exp_date" ]]; then
-            echo -e "\n\e[1;31m❌ Format masa aktif tidak valid.\e[0m"; sleep 2; return
-        fi
-        uuid=$(get_uuid)
+    read -p "Username: " user
+    if [[ -z "$user" ]]; then
+        echo -e "\n\e[1;31m❌ Username tidak boleh kosong.\e[0m"; sleep 2; return
+    fi
+    read -p "Masa Aktif (hari): " exp
+    exp_date=$(date -d "$exp days" +"%Y-%m-%d" 2>/dev/null)
+    if [[ -z "$exp_date" ]]; then
+        echo -e "\n\e[1;31m❌ Format masa aktif tidak valid.\e[0m"; sleep 2; return
     fi
 
     case $protocol_choice in
-1) # VMess - Logika yang Diperbarui
-            # Menargetkan inbound VMess baru (indeks ke-2 atau 'inbounds[2]')
+        1) # SSH
+            echo -e "\n\e[1;33mMembuat user SSH untuk '$user'...\e[0m"
+            # Langkah 1: Buat user secara diam-diam
+            useradd -e "$exp_date" -s /bin/bash "$user"
+            # Langkah 2: Minta password secara interaktif
+            echo -e "\n\e[1;33mSekarang, silakan atur password untuk user '$user'...\e[0m"
+            passwd "$user"
+            # Langkah 3: Kunci shell user untuk keamanan
+            echo -e "\nMengunci shell user ke /bin/false..."
+            usermod -s /bin/false "$user"
+            clear
+            echo -e "\n\e[1;32m✅ User SSH [$user] Dibuat dengan Aman!\e[0m"
+            echo -e "   Host: $DOMAIN"
+            echo -e "   Port 443 (SSL) & Port 80 (WS)"
+            echo -e "   Expired on: $exp_date"
+            ;;
+        2) # VMess WS Port 80
+            uuid=$(get_uuid)
             jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" \
                 '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VMESS_USER_FILE" > tmp.json && mv tmp.json "$VMESS_USER_FILE"
-            jq ".inbounds[2].settings.clients += [{\"id\": \"$uuid\", \"alterId\": 0}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
+            jq ".inbounds[0].settings.clients += [{\"id\": \"$uuid\", \"alterId\": 0}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
             reload_services
             
-            # Membuat link VMess dengan port 2083 dan path /
-            vmess_json="{\"v\":\"2\",\"ps\":\"${user}_VMESS_WS_2083\",\"add\":\"$DOMAIN\",\"port\":\"2083\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$DOMAIN\",\"path\":\"/\",\"tls\":\"tls\",\"sni\":\"$DOMAIN\"}"
+            vmess_json="{\"v\":\"2\",\"ps\":\"${user}_VMESS_WS_80\",\"add\":\"$DOMAIN\",\"port\":\"80\",\"id\":\"$uuid\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$DOMAIN\",\"path\":\"/vmess\",\"tls\":\"none\"}"
             vmess_link="vmess://$(echo "$vmess_json" | base64 -w 0)"
             
             clear
             echo -e "\n\e[1;32m✅ User VMess (WS) [$user] Dibuat!\e[0m"
-            echo -e "   Port Khusus: 2083 (SSL/TLS)"
+            echo -e "   Port: 80 (WebSocket tanpa SSL)"
+            echo -e "   Path: /vmess"
             echo -e "   Expired on: $exp_date\n"
-            echo -e "\e[1;36m--- Link Konfigurasi ---\e[0m"
-            echo -e "$vmess_link"
+            echo -e "\e[1;36m--- Link Konfigurasi ---\e[0m\n$vmess_link"
             ;;
-        2) # VLESS
+        3) # VLESS WS Port 80
+            uuid=$(get_uuid)
             jq --arg user "$user" --arg uuid "$uuid" --arg exp "$exp_date" \
                 '. += [{"user": $user, "uuid": $uuid, "exp": $exp}]' "$VLESS_USER_FILE" > tmp.json && mv tmp.json "$VLESS_USER_FILE"
             jq ".inbounds[1].settings.clients += [{\"id\": \"$uuid\"}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
-            jq ".inbounds[2].settings.clients += [{\"id\": \"$uuid\"}]" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
             reload_services
-            vless_ws="vless://${uuid}@${DOMAIN}:443?security=tls&encryption=none&headerType=none&type=ws&path=%2Fvless-ws&sni=${DOMAIN}#${user}_VLESS_WS"
-            vless_reality="vless://${uuid}@${DOMAIN}:8443?security=reality&encryption=none&pbk=${XRAY_PUBLIC_KEY}&headerType=none&type=tcp&flow=xtls-rprx-vision&sni=www.microsoft.com#${user}_VLESS_REALITY"
-            clear
-            echo -e "\n\e[1;32m✅ User VLESS [$user] Dibuat!\e[0m\n   Expired on: $exp_date\n\n\e[1;36m--- VLESS WebSocket (Port 443) ---\e[0m\n$vless_ws\n\n\e[1;36m--- VLESS REALITY (Port 8443) ---\e[0m\n$vless_reality"
-            ;;
-        3) # SSH - METODE BARU INTERAKTIF
-            clear
-            echo -e "\n\e[1;33m--- Membuat User SSH Secara Interaktif ---\e[0m"
-            echo -e "Anda akan diminta untuk memasukkan username, password, dan info lainnya."
-            echo -e "Tekan ENTER untuk melewati info yang tidak perlu (Full Name, etc.).\n"
-
-            read -p "Masukkan Username baru untuk SSH: " ssh_user
-            if [[ -z "$ssh_user" ]]; then
-                echo -e "\n\e[1;31m❌ Username tidak boleh kosong.\e[0m"; sleep 2; return
-            fi
-            read -p "Masukkan Masa Aktif (hari): " exp
-            exp_date=$(date -d "$exp days" +"%Y-%m-%d" 2>/dev/null)
-            if [[ -z "$exp_date" ]]; then
-                echo -e "\n\e[1;31m❌ Format masa aktif tidak valid.\e[0m"; sleep 2; return
-            fi
-
-            # Menjalankan adduser secara interaktif, yang sudah terbukti berhasil
-            sudo useradd -m -s /bin/bash "$ssh_user"
-             sudo passwd "$ssh_user"
-            # Mengatur tanggal kadaluwarsa & menonaktifkan shell setelah user dibuat
-            usermod -e "$exp_date" -s /bin/bash "$ssh_user"
+            
+            vless_link="vless://${uuid}@${DOMAIN}:80?encryption=none&headerType=none&type=ws&path=%2Fvless&host=${DOMAIN}#${user}_VLESS_WS_80"
 
             clear
-            echo -e "\n\e[1;32m✅ User SSH [$ssh_user] Dibuat Secara Manual!\e[0m"
-            echo -e "   Pastikan Anda mengingat password yang baru saja Anda atur."
-            echo -e "   Host: $DOMAIN"
-            echo -e "   Port: 80 (WS) & 443 (WSS/SSL)"
-            echo -e "   Expired on: $exp_date"
+            echo -e "\n\e[1;32m✅ User VLESS [$user] Dibuat!\e[0m"
+            echo -e "   Port: 80 (WebSocket tanpa SSL)"
+            echo -e "   Path: /vless"
+            echo -e "   Expired on: $exp_date\n"
+            echo -e "\e[1;36m--- Link Konfigurasi ---\e[0m\n$vless_link"
             ;;
         *)
             echo "Pilihan tidak valid."
@@ -148,7 +126,7 @@ function list_users() {
         jq -r '.[] | "• \u001b[1;37m\(.user)\u001b[0m (Exp: \u001b[1;32m\(.exp)\u001b[0m)"' "$VMESS_USER_FILE"
     fi
 
-    echo -e "\n\e[1;33m--- User VLESS (WS & Reality) ---\e[0m"
+    echo -e "\n\e[1;33m--- User VLESS (WebSocket) ---\e[0m"
     if jq -e '. | length == 0' "$VLESS_USER_FILE" >/dev/null; then
         echo "Tidak ada user VLESS."
     else
@@ -184,7 +162,6 @@ function delete_user() {
     if [[ -n "$vless_uuid" ]]; then
         jq "map(select(.user != \"$user_to_del\"))" "$VLESS_USER_FILE" > tmp.json && mv tmp.json "$VLESS_USER_FILE"
         jq "(.inbounds[1].settings.clients) |= map(select(.id != \"$vless_uuid\"))" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
-        jq "(.inbounds[2].settings.clients) |= map(select(.id != \"$vless_uuid\"))" "$XRAY_CONFIG" > tmp.json && mv tmp.json "$XRAY_CONFIG"
         echo -e "\e[1;32m✓ User VLESS '$user_to_del' dihapus.\e[0m"
         user_found=true
     fi
@@ -203,28 +180,26 @@ function main_menu() {
     while true; do
         system_info
         echo -e "\e[1;35m╔══════════════[ \e[1;36mMENU UTAMA\e[1;35m ]══════════════╗\e[0m"
-        echo -e "║ \e[1;32m1.\e[0m \e[1;37mBuat Pengguna (All-in-One)\e[1;35m                ║"
-        echo -e "║ \e[1;32m2.\e[0m \e[1;37mHapus Pengguna\e[1;35m                          ║"
-        echo -e "║ \e[1;32m3.\e[0m \e[1;37mDaftar Pengguna\e[1;35m                         ║"
-        echo -e "║ \e[1;32m4.\e[0m \e[1;37mPerbarui Sertifikat SSL\e[1;35m                 ║"
-        echo -e "║ \e[1;32m5.\e[0m \e[1;37mPembersihan Manual (Expired)\e[1;35m            ║"
-        echo -e "║ \e[1;32m6.\e[0m \e[1;37mReboot Server\e[1;35m                           ║"
+        echo -e "║ \e[1;32m1.\e[0m \e[1;37mBuat Pengguna\e[0m                           ║"
+        echo -e "║ \e[1;32m2.\e[0m \e[1;37mHapus Pengguna\e[0m                          ║"
+        echo -e "║ \e[1;32m3.\e[0m \e[1;37mDaftar Pengguna\e[0m                         ║"
+        echo -e "║ \e[1;32m4.\e[0m \e[1;37mPerbarui Sertifikat SSL\e[0m                 ║"
+        echo -e "║ \e[1;32m5.\e[0m \e[1;37mReboot Server\e[0m                           ║"
         echo -e "╟──────────────────────────────────────────╢"
-        echo -e "║ \e[1;31m0.\e[0m \e[1;37mKeluar\e[1;35m                                    ║"
+        echo -e "║ \e[1;31m0.\e[0m \e[1;37mKeluar\e[0m                                    ║"
         echo -e "\e[1;35m╚══════════════════════════════════════════╝\e[0m"
-        read -p "➡️  Pilih menu [0-6]: " pilih
+        read -p "➡️  Pilih menu [0-5]: " pilih
         case $pilih in
             1) create_user ;;
             2) delete_user ;;
             3) list_users ;;
-            4)
+            4) 
                 systemctl stop nginx; systemctl stop stunnel4
                 certbot renew --force-renewal
                 systemctl start nginx; systemctl start stunnel4
                 read -n 1 -s -r -p "Selesai. Tekan tombol apa saja."
                 ;;
-            5) /usr/local/bin/clear-expired; read -n 1 -s -r -p "Selesai. Tekan tombol apa saja.";;
-            6) read -p "Anda yakin ingin reboot? (y/n): " confirm; if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then reboot; fi;;
+            5) read -p "Anda yakin ingin reboot? (y/n): " confirm; if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then reboot; fi;;
             0) exit 0 ;;
             *) echo "Pilihan tidak valid." ; sleep 1 ;;
         esac
