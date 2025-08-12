@@ -11,7 +11,7 @@ apt update -y
 apt install -y python3.11
 apt install -y nginx stunnel4 openvpn wireguard cron git cmake make gcc build-essential golang-go python3-pip socat unzip pwgen curl net-tools neofetch
 apt update -y
-apt install -y openssl libssl-dev
+apt install -y openssl libssl-dev libnspr4 libnspr4-dev
 systemctl enable nginx; systemctl start nginx
 systemctl enable stunnel4; systemctl start stunnel4
 systemctl enable cron; systemctl start cron
