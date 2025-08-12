@@ -29,7 +29,7 @@ msg_info "Updating system and installing packages..."
 apt update -y && apt upgrade -y
 apt install -y sudo curl ca-certificates lsb-release gnupg \
   software-properties-common build-essential cmake make gcc git net-tools iproute2 iptables ufw \
-  nginx stunnel4 dropbear certbot cron easy-rsa openvpn nodejs npm
+  nginx stunnel4 dropbear certbot cron easy-rsa openvpn
 
 # If node not present or old, install Node 18 LTS (best-effort)
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 16 ]; then
