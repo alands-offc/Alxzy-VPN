@@ -1,0 +1,18 @@
+#!/bin/bash
+
+clear
+cat /etc/alxzyvpn/main/banner
+echo ""
+
+read -p "Masukkan Username yang akan dihapus: " user
+if ! id -u "$user" >/dev/null 2>&1; then
+    echo "Username $user tidak ditemukan."
+    exit 1
+fi
+
+userdel -r "$user"
+sed -i "/^$user|/d" /var/lib/data-user-list.txt
+
+echo "=============================================="
+echo "   Username $user berhasil dihapus."
+echo "=============================================="
