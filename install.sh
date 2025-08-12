@@ -7,10 +7,11 @@ timedatectl set-timezone Asia/Jakarta
 apt update && apt upgrade -y
 apt install -y software-properties-common
 add-apt-repository -y ppa:deadsnakes/ppa
-apt update
+apt update -y
 apt install -y python3.11
 apt install -y nginx stunnel4 openvpn wireguard cron git cmake build-essential golang-go python3-pip socat unzip pwgen curl net-tools neofetch
-
+apt update -y
+apt install -y libssl-dev
 systemctl enable nginx; systemctl start nginx
 systemctl enable stunnel4; systemctl start stunnel4
 systemctl enable cron; systemctl start cron
