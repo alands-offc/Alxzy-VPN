@@ -26,19 +26,24 @@ echo "$DOMAIN" > /root/domain
 export DEBIAN_FRONTEND=noninteractive
 
 msg_info "Updating system and installing packages..."
-apt update -y && apt upgrade -y
-apt install -y sudo curl ca-certificates lsb-release gnupg \
+apt-get update -y && apt-get upgrade -y
+apt-get install -y sudo curl ca-certificates lsb-release gnupg \
   software-properties-common build-essential cmake make gcc git net-tools iproute2 iptables ufw \
   nginx stunnel4 dropbear certbot cron easy-rsa openvpn
 
-# If node not present or old, install Node 18 LTS (best-effort)
+# If node not present or old, install Node.js 20.x
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 16 ]; then
-  sudo apt-get install -y ca-certificates curl gnupg
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
-apt-get update
-apt-get install -y nodejs
+  msg_info "Installing Node.js v20..."
+  # FIX: Remove existing nodejs and libnode-dev to prevent conflict before installing from Nodesource.
+  apt-get remove -y nodejs libnode-dev || true
+  apt-get autoremove -y || true
+
+  apt-get install -y ca-certificates curl gnupg
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+  apt-get update
+  apt-get install -y nodejs
 fi
 
 # Remove xray if exists (best-effort)
@@ -64,7 +69,7 @@ ufw reload
 # Dropbear config (local SSH for stunnel/WS)
 DROPBEAR_PORT=2253
 msg_info "Configuring Dropbear on port ${DROPBEAR_PORT}..."
-apt install -y dropbear
+apt-get install -y dropbear
 cat > /etc/default/dropbear <<EOF
 NO_START=0
 DROPBEAR_PORT=${DROPBEAR_PORT}
@@ -217,23 +222,12 @@ server {
     proxy_buffers 4 256k;
     proxy_busy_buffers_size 256k;
 
-    # WebSocket endpoint (recommended path /ws)
-    location /ws {
-        proxy_pass http://127.0.0.1:10005;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-
-    # Accept arbitrary HTTP methods as "bug host" path and forward to ws2tcp
+    # Universal location for both WebSocket upgrade and standard proxying
     location / {
         proxy_pass http://127.0.0.1:10005;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Connection "upgrade"; # FIX: Use "upgrade" directly for reliability
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -252,21 +246,11 @@ server {
     proxy_buffers 4 256k;
     proxy_busy_buffers_size 256k;
 
-    location /ws {
-        proxy_pass http://127.0.0.1:10005;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-
     location / {
         proxy_pass http://127.0.0.1:10005;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Connection "upgrade"; # FIX: Use "upgrade" directly for reliability
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -366,21 +350,21 @@ case $opt in
   1)
     read -p "Username: " u
     read -p "Days valid: " d
-    if [ -z \"$u\" ]; then echo 'Username empty'; exit 1; fi
-    useradd -m -s /bin/bash \"$u\"
-    passwd \"$u\"
-    exp=$(date -d \"+$d days\" +%Y-%m-%d 2>/dev/null)
-    chage -E \"$exp\" \"$u\"
-    echo \"User $u created, expires: $exp\"
+    if [ -z "$u" ]; then echo 'Username empty'; exit 1; fi
+    useradd -m -s /bin/bash "$u"
+    passwd "$u"
+    exp=$(date -d "+$d days" +%Y-%m-%d 2>/dev/null)
+    chage -E "$exp" "$u"
+    echo "User $u created, expires: $exp"
     ;;
   2)
-    read -p \"Client name: \" cname
-    if [ -z \"$cname\" ]; then echo 'Name empty'; exit 1; fi
+    read -p "Client name: " cname
+    if [ -z "$cname" ]; then echo 'Name empty'; exit 1; fi
     # Generate a client cert/key (quick & insecure: nopass)
-    EASYRSA_DIR=\"/etc/openvpn/easy-rsa\"
-    cd \"$EASYRSA_DIR\"
-    EASYRSA_BATCH=1 ./easyrsa gen-req \"$cname\" nopass
-    EASYRSA_BATCH=1 ./easyrsa sign-req client \"$cname\"
+    EASYRSA_DIR="/etc/openvpn/easy-rsa"
+    cd "$EASYRSA_DIR"
+    EASYRSA_BATCH=1 ./easyrsa gen-req "$cname" nopass
+    EASYRSA_BATCH=1 ./easyrsa sign-req client "$cname"
     mkdir -p /root/ovpn
     cat > /root/ovpn/${cname}.ovpn <<OV
 client
@@ -405,20 +389,20 @@ $(cat /etc/openvpn/pki/private/${cname}.key 2>/dev/null || echo "NO_KEY")
 key-direction 1
 auth SHA256
 OV
-    echo \"OVPN client saved: /root/ovpn/${cname}.ovpn\"
+    echo "OVPN client saved: /root/ovpn/${cname}.ovpn"
     ;;
   3)
     systemctl stop nginx; systemctl stop stunnel4
     certbot renew --force-renewal
     systemctl start nginx; systemctl start stunnel4
-    echo \"Cert renewed.\"
+    echo "Cert renewed."
     ;;
   4)
     systemctl restart nginx stunnel4 ws2tcp dropbear openvpn@server-8080 openvpn@server-1194
-    echo \"Services restarted.\"
+    echo "Services restarted."
     ;;
   0) exit 0 ;;
-  *) echo \"Invalid\" ;;
+  *) echo "Invalid" ;;
 esac
 EOF
 
