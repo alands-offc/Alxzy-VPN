@@ -1,0 +1,19 @@
+#!/bin/bash
+
+today_seconds=$(date +%s)
+
+while IFS= read -r line; do
+    exp_date_str=$(echo "$line" | cut -d'|' -f3)
+    username=$(echo "$line" | cut -d'|' -f1)
+
+    if [[ -z "$exp_date_str" || -z "$username" ]]; then
+        continue
+    fi
+
+    exp_seconds=$(date -d "$exp_date_str" +%s)
+
+    if [[ "$today_seconds" -ge "$exp_seconds" ]]; then
+        userdel -r "$username"
+        sed -i "/^$username|/d" /var/lib/data-user-list.txt
+    fi
+done < /var/lib/data-user-list.txt
