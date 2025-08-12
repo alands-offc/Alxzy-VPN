@@ -91,7 +91,6 @@ crontab /etc/cron.d/xp_user
 
 history -c
 rm -f install.sh
-clear
 neofetch
 echo ""
 echo "=============================================="
@@ -100,4 +99,3 @@ echo "=============================================="
 echo ""
 echo "Ketik 'menu' untuk menampilkan panel kontrol."
 echo ""
-reboot
