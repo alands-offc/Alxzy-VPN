@@ -33,8 +33,12 @@ apt install -y sudo curl ca-certificates lsb-release gnupg \
 
 # If node not present or old, install Node 18 LTS (best-effort)
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 16 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_18.x | bash - >/dev/null 2>&1 || true
-  apt install -y nodejs || true
+  sudo apt-get install -y ca-certificates curl gnupg
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+apt-get update
+apt-get install -y nodejs
 fi
 
 # Remove xray if exists (best-effort)
