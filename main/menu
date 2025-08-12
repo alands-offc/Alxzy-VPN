@@ -1,0 +1,34 @@
+#!/bin/bash
+
+while true; do
+    clear
+    cat /etc/alxzyvpn/main/banner
+    echo ""
+    echo "  [1] Tambah Pengguna SSH & VPN"
+    echo "  [2] Hapus Pengguna SSH & VPN"
+    echo "  [3] Buat Akun Trial (1 Jam)"
+    echo "  [4] Periksa Login Pengguna"
+    echo "  [5] Daftar Pengguna"
+    echo "  [6] Perbarui Skrip"
+    echo "  [7] Info Sistem"
+    echo "  [8] Reboot VPS"
+    echo ""
+    echo "  [x] Keluar"
+    echo ""
+    read -p "  Pilih opsi [1-8 atau x]: " Pilihan
+
+    case "$Pilihan" in
+        1) /etc/alxzyvpn/main/adduser ;;
+        2) /etc/alxzyvpn/main/deluser ;;
+        3) /etc/alxzyvpn/main/trial ;;
+        4) echo "Fitur belum siap" && sleep 1 ;;
+        5) echo "Fitur belum siap" && sleep 1 ;;
+        6) echo "Fitur belum siap" && sleep 1 ;;
+        7) neofetch --ascii_distro none ;;
+        8) reboot ;;
+        x) exit ;;
+        *) echo "Pilihan tidak valid!" && sleep 1 ;;
+    esac
+
+    read -n 1 -s -r -p "Tekan tombol apa saja untuk kembali ke menu..."
+done
