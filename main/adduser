@@ -1,0 +1,30 @@
+#!/bin/bash
+
+clear
+cat /etc/alxzyvpn/main/banner
+echo ""
+
+read -p "Masukkan Username: " user
+if id -u "$user" >/dev/null 2>&1; then
+    echo "Username $user sudah ada."
+    exit 1
+fi
+
+read -p "Masukkan Password: " pass
+read -p "Masa Aktif (hari): " masaaktif
+
+exp_date=$(date -d "+$masaaktif days" +%Y-%m-%d)
+useradd -e "$exp_date" -s /bin/false -M "$user"
+echo -e "$pass\n$pass" | passwd "$user" >/dev/null 2>&1
+
+echo "$user|$pass|$exp_date" >> /var/lib/data-user-list.txt
+
+clear
+echo "=============================================="
+echo "          Akun Berhasil Dibuat          "
+echo "=============================================="
+echo "Username     : $user"
+echo "Password     : $pass"
+echo "Masa Aktif   : $masaaktif hari"
+echo "Kadaluwarsa  : $exp_date"
+echo "=============================================="
