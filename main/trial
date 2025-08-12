@@ -1,0 +1,23 @@
+#!/bin/bash
+
+clear
+cat /etc/alxzyvpn/main/banner
+echo ""
+
+user="trial-$(pwgen -s 1 5)"
+pass=$(pwgen -s 1 8)
+exp_date=$(date -d "+1 hour" +%Y-%m-%d-%H:%M)
+
+useradd -e "$(date -d "+1 hour" '+%Y-%m-%d')" -s /bin/false -M "$user"
+echo -e "$pass\n$pass" | passwd "$user" >/dev/null 2>&1
+
+echo "$user|$pass|$exp_date" >> /var/lib/data-user-list.txt
+
+clear
+echo "=============================================="
+echo "          Akun Trial Berhasil Dibuat      "
+echo "=============================================="
+echo "Username     : $user"
+echo "Password     : $pass"
+echo "Masa Aktif   : 1 Jam"
+echo "=============================================="
