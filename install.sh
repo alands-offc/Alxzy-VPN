@@ -50,12 +50,13 @@ sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config
 sed -i '/Port 22/a Port 225' /etc/ssh/sshd_config
 systemctl restart sshd
 
-git clone https://github.com/XTLS/badvpn.git /root/badvpn/
-cd /root/badvpn
-cmake . -B build
-make -j$(nproc)
+git clone https://github.com/XTLS/badvpn.git
+cd badvpn
+mkdir -p build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1
+make -j"$(nproc)"
 make install
-rm -rf /root/badvpn
 cat > /etc/systemd/system/badvpn.service << END
 [Unit]
 Description=BadVPN UDPGW
