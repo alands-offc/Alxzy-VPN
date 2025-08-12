@@ -1,257 +1,274 @@
 #!/bin/bash
+# =================================================================
+# VPN Auto Installer v3.8.1 - Hybrid Stunnel + Nginx + BadVPN
+# =================================================================
 
-# Pastikan skrip dijalankan sebagai root
-if [ "$(id -u)" -ne 0 ]; then
-   echo "Skrip ini harus dijalankan sebagai root" 
-   exit 1
-fi
+set -e
+msg_info() { echo -e "\n\e[1;33m[*] $1\e[0m"; }
+msg_ok() { echo -e "\n\e[1;32m[+] $1\e[0m"; }
+msg_err() { echo -e "\n\e[1;31m[!] $1\e[0m"; exit 1; }
+if [ "$(id -u)" -ne 0 ]; then msg_err "Skrip ini harus dijalankan sebagai root."; fi
 
+clear
+echo -e "\n\e[1;35m=========================================================\e[0m"
+echo -e " \e[1;36m VPN Auto Installer v3.8.1 - Hybrid Final Edition\e[0m"
+echo -e "\e[1;35m=========================================================\e[0m"
+read -p "➡️  Masukkan domain/subdomain Anda: " DOMAIN
+read -p "➡️  Masukkan email Anda untuk SSL: " LETSENCRYPT_EMAIL
+if [[ -z "$DOMAIN" || -z "$LETSENCRYPT_EMAIL" ]]; then msg_err "Domain dan Email tidak boleh kosong!"; fi
+echo "$DOMAIN" > /root/domain
+
+# --- Tahap 1: Instalasi Paket & Firewall ---
+msg_info "Menginstal paket dan mengatur firewall..."
 export DEBIAN_FRONTEND=noninteractive
-export REPO_URL="https://raw.githubusercontent.com/alands-offc/Alxzy-VPN/main"
+apt update > /dev/null 2>&1 && apt upgrade -y > /dev/null 2>&1
+# Menambahkan kembali git, cmake, make, gcc untuk build badvpn
+apt install -y stunnel4 nginx ufw dropbear certbot cron git cmake make gcc
 
-echo "=============================================="
-echo "      Memulai Instalasi Alxzy VPN Script      "
-echo "=============================================="
-sleep 2
+# Port UDPGW 7300 ditambahkan kembali
+ufw allow 22,80,443,8443,2043/tcp
+ufw allow 2253/tcp # Internal Dropbear
+ufw allow 7300/udp # BadVPN
+ufw --force enable
+ufw reload > /dev/null 2>&1
 
-# Setel zona waktu
-timedatectl set-timezone Asia/Jakarta
+# --- Tahap 2: Konfigurasi Dropbear & Sertifikat SSL ---
+msg_info "Konfigurasi Dropbear & meminta sertifikat SSL..."
+DROPBEAR_PORT=2253
+cat > /etc/default/dropbear <<EOF
+NO_START=0
+DROPBEAR_PORT=${DROPBEAR_PORT}
+DROPBEAR_EXTRA_ARGS=""
+EOF
+systemctl restart dropbear && systemctl enable dropbear
 
-# Update & instal semua dependensi dalam satu langkah
-echo ">>> Menginstal paket yang dibutuhkan..."
-apt update
-apt install -y software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt update
-apt install -y python3.11 python3-pip nginx stunnel4 openvpn wireguard cron git cmake make gcc build-essential golang-go socat unzip pwgen curl net-tools neofetch openssl libssl-dev libnspr4 libnspr4-dev
-pip3 install requests websockets asyncio
-echo ">>> Paket berhasil diinstal."
-echo ""
+systemctl stop nginx > /dev/null 2>&1 || true
+systemctl stop stunnel4 > /dev/null 2>&1 || true
+certbot certonly --standalone --agree-tos --no-eff-email --email "$LETSENCRYPT_EMAIL" -d "$DOMAIN"
+CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
 
-# Konfigurasi Nginx sebagai Reverse Proxy
-echo ">>> Mengkonfigurasi Nginx..."
-systemctl enable nginx
-systemctl start nginx
-rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
-curl -sL -o /etc/nginx/nginx.conf "${REPO_URL}/main/nginx.conf"
-mkdir -p /home/vps/public_html
-echo "<h1>Alxzy VPN</h1>" > /home/vps/public_html/index.html
-
-# Buat file konfigurasi vps.conf untuk reverse proxy WebSocket
-cat > /etc/nginx/conf.d/vps.conf << END
-server {
-    listen 80 default_server;
-    server_name _;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080; # Arahkan ke port ws-ssh.py
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    }
-}
-END
-systemctl restart nginx
-echo ">>> Nginx berhasil dikonfigurasi."
-echo ""
-
-# Buat skrip ws-ssh.py langsung di server
-echo ">>> Membuat skrip WebSocket to SSH..."
-cat > /root/ws-ssh.py << 'END'
-#!/usr/bin/env python3
-import asyncio
-import websockets
-import os
-import logging
-
-# Konfigurasi logging dasar untuk melihat aktivitas
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Konfigurasi Port
-# Port default untuk WebSocket diubah ke 8080
-LISTEN_PORT = int(os.environ.get("WS_LISTEN_PORT", 8080))
-SSH_PORT = int(os.environ.get("SSH_PORT", 22))
-
-LISTEN_HOST = "0.0.0.0"
-SSH_HOST = "127.0.0.1"
-
-async def handle_client(websocket, path):
-    """Fungsi ini menangani setiap koneksi WebSocket yang masuk."""
-    client_addr = websocket.remote_address
-    logging.info(f"Koneksi WebSocket baru dari: {client_addr}")
-    
-    try:
-        # Buka koneksi ke server SSH lokal
-        reader, writer = await asyncio.open_connection(SSH_HOST, SSH_PORT)
-    except Exception as e:
-        logging.error(f"Gagal terhubung ke server SSH di {SSH_HOST}:{SSH_PORT}: {e}")
-        await websocket.close()
-        return
-
-    async def ws_to_tcp():
-        """Membaca pesan dari WebSocket dan meneruskannya ke TCP (SSH)."""
-        try:
-            async for message in websocket:
-                writer.write(message)
-                await writer.drain()
-        except websockets.exceptions.ConnectionClosed:
-            logging.info(f"Koneksi WebSocket dari {client_addr} ditutup.")
-        except Exception as e:
-            logging.error(f"Error (ws->tcp) dari {client_addr}: {e}")
-        finally:
-            writer.close()
-
-    async def tcp_to_ws():
-        """Membaca data dari TCP (SSH) dan meneruskannya ke WebSocket."""
-        try:
-            while not reader.at_eof():
-                data = await reader.read(4096)
-                if data:
-                    await websocket.send(data)
-                else:
-                    break
-        except websockets.exceptions.ConnectionClosed:
-            pass  # Klien sudah menutup, tidak perlu lapor error
-        except Exception as e:
-            logging.error(f"Error (tcp->ws) dari {client_addr}: {e}")
-        finally:
-            await websocket.close()
-
-    # Jalankan kedua fungsi penerus data secara bersamaan
-    await asyncio.gather(ws_to_tcp(), tcp_to_ws())
-    logging.info(f"Koneksi dari {client_addr} telah berakhir.")
-
-async def main():
-    """Fungsi utama untuk menjalankan server."""
-    server = await websockets.serve(handle_client, LISTEN_HOST, LISTEN_PORT)
-    logging.info(f"Server WebSocket berjalan di {LISTEN_HOST}:{LISTEN_PORT}, meneruskan ke {SSH_HOST}:{SSH_PORT}")
-    await server.wait_closed()
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("Server dihentikan oleh pengguna.")
-END
-chmod +x /root/ws-ssh.py
-echo ">>> Skrip WebSocket berhasil dibuat."
-echo ""
-
-# Buat service untuk ws-ssh.py
-echo ">>> Membuat service untuk WebSocket..."
-cat > /etc/systemd/system/ws-ssh.service << END
-[Unit]
-Description=WebSocket SSH Python Service
-After=network.target
-
-[Service]
-User=root
-Type=simple
-ExecStart=/usr/bin/python3.11 /root/ws-ssh.py
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-END
-systemctl enable ws-ssh
-systemctl start ws-ssh
-echo ">>> Service WebSocket berhasil dibuat dan dijalankan."
-echo ""
-
-# Konfigurasi Stunnel
-echo ">>> Mengkonfigurasi Stunnel..."
-systemctl enable stunnel4
-systemctl start stunnel4
-openssl genrsa -out /etc/stunnel/privkey.pem 2048
-openssl req -new -x509 -days 3650 -key /etc/stunnel/privkey.pem -out /etc/stunnel/cert.pem -subj "/CN=alxzy-vpn"
-cat /etc/stunnel/privkey.pem /etc/stunnel/cert.pem >> /etc/stunnel/stunnel.pem
-curl -sL -o /etc/stunnel/stunnel.conf "${REPO_URL}/main/stunnel.conf"
-sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/stunnel4
-systemctl restart stunnel4
-echo ">>> Stunnel berhasil dikonfigurasi."
-echo ""
-
-# Tambah port SSH
-echo ">>> Menambahkan port SSH tambahan (225)..."
-if ! grep -q "^Port 225" /etc/ssh/sshd_config; then
-    echo "Port 225" >> /etc/ssh/sshd_config
-fi
-systemctl restart sshd
-echo ">>> Port SSH berhasil ditambahkan."
-echo ""
-
-# Instal dan Konfigurasi BadVPN
-echo ">>> Menginstal BadVPN UDP Gateway..."
-git clone https://github.com/XTLS/badvpn.git /root/badvpn
-cd /root/badvpn
+# --- Tahap 3: Konfigurasi BadVPN (UDPGW) ---
+msg_info "Menginstal dan konfigurasi BadVPN (UDPGW)..."
+cd /root
+if [ ! -d "badvpn" ]; then git clone https://github.com/XTLS/badvpn.git; fi
+cd badvpn
 mkdir -p build
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1
 make -j"$(nproc)"
 make install
-cd /root
-rm -rf /root/badvpn
-
-cat > /etc/systemd/system/badvpn.service << END
+# Buat service untuk badvpn-udpgw
+cat > /etc/systemd/system/badvpn.service <<EOF
 [Unit]
-Description=BadVPN UDPGW
+Description=BadVPN UDP Gateway
 After=network.target
-
 [Service]
-ExecStart=/usr/local/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 2000
+ExecStart=/usr/local/bin/badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 512
 User=root
-Restart=always
-RestartSec=3
-
+Restart=on-failure
 [Install]
 WantedBy=multi-user.target
-END
-systemctl enable badvpn
-systemctl start badvpn
-echo ">>> BadVPN berhasil diinstal."
-echo ""
+EOF
+systemctl daemon-reload
+systemctl enable --now badvpn.service
 
-# Siapkan direktori dan skrip menu
-echo ">>> Mengunduh skrip menu dan utilitas..."
-mkdir -p /etc/alxzyvpn/main
-touch /var/lib/data-user-list.txt
+# --- Tahap 4: Konfigurasi Stunnel HANYA untuk Port 443 ---
+msg_info "Konfigurasi Stunnel untuk menangani port 443 (SSH SSL)..."
+cat > /etc/stunnel/stunnel.conf << EOF
+pid = /var/run/stunnel4/stunnel.pid
+cert = $CERT_PATH
+key = $KEY_PATH
+client = no
+[ssh_ssl]
+accept = 443
+connect = 127.0.0.1:${DROPBEAR_PORT}
+EOF
+sed -i 's/ENABLED=0/ENABLED=1/' /etc/default/stunnel4
+systemctl enable stunnel4
+systemctl restart stunnel4
 
-# Download utilitas dengan curl
-curl -sL -o /usr/local/bin/menu "${REPO_URL}/main/menu"; chmod +x /usr/local/bin/menu
-curl -sL -o /etc/alxzyvpn/main/banner "${REPO_URL}/main/banner"
-curl -sL -o /etc/alxzyvpn/main/adduser "${REPO_URL}/main/adduser"; chmod +x /etc/alxzyvpn/main/adduser
-curl -sL -o /etc/alxzyvpn/main/deluser "${REPO_URL}/main/deluser"; chmod +x /etc/alxzyvpn/main/deluser
-curl -sL -o /etc/alxzyvpn/main/trial "${REPO_URL}/main/trial"; chmod +x /etc/alxzyvpn/main/trial
-curl -sL -o /etc/alxzyvpn/main/xp "${REPO_URL}/main/xp"; chmod +x /etc/alxzyvpn/main/xp
-echo ">>> Skrip menu berhasil diunduh."
-echo ""
+# --- Tahap 5: Konfigurasi Nginx untuk port 80, 8443, 2043 ---
+msg_info "Konfigurasi Nginx untuk menangani port WS & WSS..."
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/*.conf
+sudo tee /etc/nginx/conf.d/main_config.conf > /dev/null <<EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
 
-# Setup Cron job untuk auto-delete user expired
-echo ">>> Menyiapkan cron job untuk auto-delete user..."
-cat > /etc/cron.d/xp_user << END
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-0 1 * * * root /etc/alxzyvpn/main/xp
-END
-chmod 644 /etc/cron.d/xp_user
-systemctl enable cron
-systemctl start cron
-echo ">>> Cron job berhasil dibuat."
-echo ""
+    location /vmess { 
+        proxy_pass http://127.0.0.1:10001; 
+        proxy_http_version 1.1; 
+        proxy_set_header Upgrade \$http_upgrade; 
+        proxy_set_header Connection "upgrade"; 
+    }
+    location /vless { 
+        proxy_pass http://127.0.0.1:10002; 
+        proxy_http_version 1.1; 
+        proxy_set_header Upgrade \$http_upgrade; 
+        proxy_set_header Connection "upgrade"; 
+    }
+}
 
-# Selesai
-history -c
-rm -f "$0"
+# PORT 8443 (SSL/WSS KHUSUS UNTUK VMESS)
+server {
+    listen 8443 ssl http2;
+    listen [::]:8443 ssl http2;
+    server_name ${DOMAIN};
 
-echo "=============================================="
-echo "      Instalasi Layanan VPN Selesai!      "
-echo "=============================================="
-echo ""
-neofetch
-echo ""
-echo "Ketik 'menu' untuk menampilkan panel kontrol."
-echo ""
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozSSL:10m; 
+    ssl_session_tickets off;
+    
+    # ssl_dhparam dinonaktifkan karena filenya tidak ada
+    # ssl_dhparam /etc/nginx/dhparam;
+    
+    ssl_protocols TLSv1.2 TLSv1.3; # TLSv1.3 ditambahkan
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    
+    location / {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:10003; # Typo diperbaiki & port sudah benar
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+
+# PORT 2043 (SSL/WSS KHUSUS UNTUK VLESS)
+server {
+    listen 2043 ssl http2;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / { 
+        proxy_pass http://127.0.0.1:10004; # Diperbaiki ke port 10004
+        proxy_http_version 1.1; 
+        proxy_set_header Upgrade \$http_upgrade; 
+        proxy_set_header Connection "upgrade"; 
+    }
+}
+EOF
+
+# Terapkan perubahan
+sudo nginx -t && sudo systemctl restart nginx
+
+# --- Tahap 6: Konfigurasi Xray ---
+msg_info "Menginstal & Konfigurasi Xray..."
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install > /dev/null 2>&1
+mkdir -p /usr/local/etc/xray/users
+echo "[]" > /usr/local/etc/xray/users/vmess_users.json
+echo "[]" > /usr/local/etc/xray/users/vless_users.json
+sudo tee /usr/local/etc/xray/config.json > /dev/null <<EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10001,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vmess"
+        }
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10002,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/vless"
+        }
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10003,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/"
+        }
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10004,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+       "settings": {}
+    }
+  ]
+}
+EOF
+systemctl enable --now xray
+# Setelah itu, langsung restart Xray
+sudo systemctl restart xray
+
+# Dan sekarang, verifikasi lagi
+echo "Memeriksa port internal Xray..."
+sudo ss -tulpn | grep ':1000'
+
+msg_info "Instalasi skrip menu..."
+# --- Tahap 8: Instalasi Skrip Menu ---
+msg_info "Menginstal skrip panel menu..."
+curl -sL "https://raw.githubusercontent.com/alands-offc/Alxzy-VPN/main/menu" -o /usr/local/bin/menu
+curl -sL "https://raw.githubusercontent.com/alands-offc/Alxzy-VPN/main/clear-expired" -o /usr/local/bin/clear-expired
+chmod +x /usr/local/bin/menu /usr/local/bin/clear-expired
+sed -i "s|export DOMAIN=.*|export DOMAIN=${DOMAIN}|" /usr/local/bin/menu
+sed -i "s|export XRAY_PUBLIC_KEY=.*|export XRAY_PUBLIC_KEY=${XRAY_PUBLIC_KEY}|" /usr/local/bin/menu
+(crontab -l 2>/dev/null | grep -v "clear-expired"; echo "0 4 * * * /usr/local/bin/clear-expired") | crontab -
+
+BASHRC_FILE="/root/.bashrc"
+if ! grep -q "menu" "$BASHRC_FILE"; then
+    echo -e '\nif [ -n "$SSH_TTY" ]; then\n    /usr/local/bin/menu\nfi' >> "$BASHRC_FILE"
+fi
+
+msg_ok "INSTALASI SELESAI"
+echo -e "\e[1;35m=====================================================\e[0m"
+echo -e "Konfigurasi server Anda sekarang:"
+echo -e "  - \e[1;32mPort 443 (SSL):\e[0m \e[1;36mStunnel -> SSH\e[0m"
+echo -e "  - \e[1;32mPort 80 (WS):\e[0m   \e[1;36mNginx -> VMess & VLESS\e[0m"
+echo -e "  - \e[1;32mPort 8443 (WSS):\e[0m \e[1;36mNginx -> KHUSUS VMess\e[0m"
+echo -e "  - \e[1;32mPort 2043 (WSS):\e[0m \e[1;36mNginx -> KHUSUS VLESS\e[0m"
+echo -e "  - \e[1;32mPort 7300 (UDP):\e[0m \e[1;36mBadVPN UDP Gateway\e[0m"
+echo -e "\e[1;35m=====================================================\e[0m"
